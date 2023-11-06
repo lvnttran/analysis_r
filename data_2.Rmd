@@ -1,0 +1,999 @@
+---
+title: |
+  MAKING A MOVIE <br> WHO SHOULD WE HIRE 🧐
+author: "Tam, Nauman, Sushant, Ahmad, Irtasam"
+date: "`r Sys.Date()`"
+fontsize: 11pt
+output:
+  rmdformats::readthedown:
+  number_sections: true
+---
+
+```{r setup, include=FALSE, cache=FALSE}
+## Libraries
+## You may have to install these libraries first 
+## with the tab on bottom right panel : "Packages" ; click install
+## or : install.packages("ggplot2")   - don't forget the ""
+library(knitr)
+library(rmdformats)
+
+## Global options
+knitr::opts_chunk$set(               # On définit ici les comportements par défaut des capsules dans le document produit html
+               echo=T,        # pour afficher les lignes de code (FALSE pour les cacher ; mais elles seront executer)
+               eval=TRUE,     # pour executer les capsules de code
+	             message=FALSE, # pour que les messages de R ne soient pas affichés dans le doc html
+               warning=FALSE) # pour que les alertes de R ne soient pas affichés dans le doc html
+knitr::opts_knit$set(width=100)  
+options(max.print="100")       # pour définir le nombre d'éléments afficher par R
+
+options(max.print="100")
+opts_chunk$set(echo=T,    # pour afficher les lignes de code (FALSE pour les cacher ; mais elles seront executer)  
+               eval=TRUE, # pour executer les capsules de code
+               message=FALSE,  # pour que les messages de R ne soient pas affichés dans le doc html
+               warning=FALSE)  # pour que les alertes de R ne soient pas affichés dans le doc html
+opts_knit$set(width=100)  # pour définir le nombre d'éléments afficher par R
+```
+
+<!-- Enoncé -->
+
+In this data analysis project, we delve into the movie dataset sourced from I. Joly & P. Lemaire. Our approach follows the CRISP-DM methodology. The results obtained provide valuable insights, shaping decisions and strategies in the realm of filmmaking.
+
+# I. Business understanding {.tabset}
+
+Talk about the project what kind of topic 
+
+# II. Data understanding {.tabset}
+
+Then we talk about the params the param we gonna to use with reason - guess
+```{r, echo=FALSE}
+# Use for display the main params we going to use in this project
+params <- c("movie_title", "actor_1_name", "imdb_score", "genres", "ROI_perc")
+descriptions <- c(
+  "Title of the movie",
+  "Primary actor starring in the movie",
+  "IMDB Score of the movie on IMDB, rated by the users",
+  "Film categorization",
+  "ROI = profit / budget"
+)
+
+# Create a data frame with a column for numbering
+table_data <- data.frame(
+  No. = 1:length(params),
+  Parameter = params,
+  Description = descriptions
+)
+
+# Print the table using kable
+knitr::kable(table_data, col.names = c("No.", "Parameter", "Description"), align = "l")
+
+```
+
+# III. Data preparation {.tabset}
+
+## General Movie.Data
+```{r, echo=FALSE}
+# List of required libraries
+required_libraries <- c("rmdformats", "skimr", "readr", "dplyr", "anytime", "gt", "magrittr", "ggplot2", "stringr")
+
+# Set a CRAN mirror
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Check if each library is installed, and install if not
+for (lib in required_libraries) {
+  if (!requireNamespace(lib, quietly = TRUE)) {
+    install.packages(lib, dependencies = TRUE)
+  }
+  library(lib, character.only = TRUE)
+}
+```
+
+Import these libraries to run this R.script of this project
+```{r, echo=FALSE}
+library(rmdformats)
+library(skimr)
+library(readr)
+library(dplyr)
+library(anytime)
+library(gt)
+library(magrittr)
+library(ggplot2)
+library(stringr)
+```
+
+```{r, echo=FALSE}
+# List of libraries
+library_list <- c(
+  "rmdformats" = "Custom R Markdown formats and templates",
+  "skimr" = "Summarizes data frames and vectors",
+  "readr" = "Reads flat files (e.g., CSV, TSV)",
+  "dplyr" = "Data manipulation and transformation",
+  "anytime" = "Converts dates and times",
+  "gt" = "Generates tables with the gt package",
+  "magrittr" = "Provides the pipe operator %>%",
+  "ggplot2" = "Data visualization with ggplot2",
+  "stringr" = "String manipulation functions"
+)
+
+# Create a data frame
+lib_data <- data.frame(
+  No = 1:length(library_list),
+  Name = names(library_list),
+  Description = unname(library_list)
+)
+
+# Display the table using kable
+knitr::kable(lib_data, col.names = c("No.", "Lib Name", "Description"), align = "l")
+```
+
+Data loading
+```{r}
+movies_data <- load("Movie.Data_Complete.RData")
+```
+
+```{r, echo=FALSE}
+Movie.Data %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("General View of the Dataset")
+```
+
+Displaying summary statistics
+```{r}
+Movie.Data %>% summary() %>% kable() %>% head()
+```
+
+## Specific data for project
+
+Because of the ... we only take the most frequency genres in the dataset
+```{r, echo=FALSE}
+# Extract individual genres from each row
+all_genres <- str_split(Movie.Data$genres, "\\|") %>%
+  unlist()
+
+# Create a data frame with the counts of each genre
+genre_counts <- data.frame(genre = all_genres) %>%
+  group_by(genre) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))  # Arrange in descending order
+
+# Select the top 10 genres
+top_10_genres <- head(genre_counts, 10)
+
+# Add a numbering column
+top_10_genres$No. <- seq_len(nrow(top_10_genres))
+
+# Display the top 10 genres in a table
+knitr::kable(top_10_genres[, c("No.", "genre", "count")], col.names = c("No.", "Genres", "Count"), align = "l")
+```
+
+Create dataset for the project called "selected_genres_subset"
+```{r, echo=FALSE}
+# Specify the genres you are interested in
+selected_genres <- c('Drama', 'Comedy', 'Thriller', 'Action', 'Romance')
+
+# Create a subset of the dataset with specific genres and columns
+selected_genres_subset <- Movie.Data %>%
+  filter(grepl(paste(selected_genres, collapse = '|'), genres, ignore.case = TRUE)) %>%
+  select(
+    movie_title, actor_1_name, genres, ROI_perc, imdb_score
+  )
+
+# Display the first few rows of the subset using gt
+selected_genres_subset %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_header(
+    title = "Subset of Movies with Selected Genres and Specific Columns"
+  ) %>%
+  tab_caption("Selected Genres Subset")
+
+# Display the summary
+selected_genres_subset %>% summary() %>% kable() %>% head()
+```
+
+Check for missing values in the data
+```{r, echo=FALSE}
+missing_values <- sapply(selected_genres_subset, function(x) sum(is.na(x)))
+# Display the number of missing values for each column
+print(missing_values)
+```
+
+We going to remove 994 NA value ROI (because we also check about the profit it have same NA value so that we couldn't cal the ROI) 
+```{r, echo=FALSE}
+# Remove rows with missing values in 'ROI_perc'
+selected_genres_subset <- selected_genres_subset %>%
+  filter(!is.na(ROI_perc))
+
+# Display the summary
+selected_genres_subset %>% summary() %>% kable() %>% head()
+
+# Extract individual genres from each row
+all_genres <- str_split(selected_genres_subset$genres, "\\|") %>%
+  unlist()
+
+# Create a data frame with the counts of each genre
+genre_counts <- data.frame(genre = all_genres) %>%
+  group_by(genre) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))  # Arrange in descending order
+
+# Select the top 5 genres
+top_5_genres <- head(genre_counts, 5)
+
+# Add a numbering column
+top_5_genres$No. <- seq_len(nrow(top_5_genres))
+
+# Display the top 5 genres in a table
+knitr::kable(top_5_genres[, c("No.", "genre", "count")], col.names = c("No.", "Genres", "Count"), align = "l")
+```
+
+Now we separate into 5 small table 
+```{r, echo=FALSE}
+# Initialize a list to store the small tables
+small_tables_list <- list()
+
+# Initialize a list to store HTML tables
+html_tables_list <- list()
+
+# Iterate over each genre and create a small table
+for (genre in selected_genres) {
+  # Filter rows for the current genre
+  current_genre_table <- selected_genres_subset %>%
+    filter(grepl(genre, genres, ignore.case = TRUE)) %>%
+    select(
+      movie_title, actor_1_name, genres, ROI_perc, imdb_score
+    )
+  
+  # Save the small table into the list
+  small_tables_list[[paste0(genre, "_table")]] <- current_genre_table
+  
+  # Convert the small table to HTML format
+  html_table <- knitr::kable(current_genre_table, col.names = c("Movie Title", "Actor 1 Name", "Genres", "ROI Perc", "IMDB Score"), align = "l")
+  
+  # Save the HTML table into the list
+  html_tables_list[[paste0(genre, "_html_table")]] <- html_table
+  
+  # Print the first few rows of the small table
+#  cat("\n", genre, "Table:\n")
+# print(head(current_genre_table))
+}
+
+# Save all small tables into the R environment
+list2env(small_tables_list, envir = .GlobalEnv)
+```
+```{r, echo=FALSE}
+# Display the first few rows of the subset
+Drama_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Drama Genres Subset")
+Drama_table %>% summary() %>% kable() %>% head()
+
+Comedy_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Comedy Genres Subset")
+Comedy_table %>% summary() %>% kable() %>% head()
+
+Thriller_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Thriller Genres Subset")
+Thriller_table %>% summary() %>% kable() %>% head()
+
+Action_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Action Genres Subset")
+Action_table %>% summary() %>% kable() %>% head()
+
+Romance_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Romance Genres Subset")
+Romance_table %>% summary() %>% kable() %>% head()
+```
+
+
+# IV. Modeling based on imdb_score {.tabset}
+
+## Drama Table
+
+Put chart and comment of that chart
+
+Check in each genres_table that if actor_1_name appear less than 5 times remove that line out of table
+
+```{r, echo=FALSE}
+# Check the count of each actor's appearances in 'Drama_table'
+actor_counts <- Drama_table %>%
+  group_by(actor_1_name) %>%
+  summarise(count = n())
+
+# Filter out actors with appearances less than 5
+actors_to_remove <- actor_counts %>%
+  filter(count < 5) %>%
+  pull(actor_1_name)
+
+# Remove rows with actors to be removed from 'Drama_table'
+Drama_table_filtered <- Drama_table %>%
+  filter(!actor_1_name %in% actors_to_remove)
+
+# Display the result using gt
+Drama_table_filtered %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Filtered Action Table")
+
+Drama_table_filtered %>% summary() %>% kable() %>% head()
+
+# Check the total count of unique actor_1_name in 'Drama_table_filtered'
+total_unique_actors <- Drama_table_filtered %>%
+  summarise(total_actors = n_distinct(actor_1_name))
+# Display the result as text
+cat("But in 724 rows, it actually only", total_unique_actors$total_actors, "actors.")
+```
+
+Cal the actor imdb 
+```{r, echo=FALSE}
+# Calculate the average imdb_score for each actor appearing more than 5 times
+actor_avg_scores <- Drama_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(imdb_actor = mean(imdb_score, na.rm = TRUE))
+
+# Merge the actor_avg_scores back into 'Drama_table_filtered'
+Drama_table_with_avg <- left_join(Drama_table_filtered, actor_avg_scores, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, imdb_actor, and ranking
+actor_ranking_table <- actor_avg_scores %>%
+  arrange(desc(imdb_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, imdb_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table
+actor_ranking_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table, aes(x = actor_1_name, y = imdb_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", imdb_actor), y = imdb_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor IMDb Scores and Rankings on Drama genres",
+    x = "Actor Name",
+    y = "Average IMDb Score",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(6, 8)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Comedy Table
+
+Put chart and comment of that chart
+
+Check in each genres_table that if actor_1_name appear less than 5 times remove that line out of table
+
+```{r, echo=FALSE}
+# Check the count of each actor's appearances in 'Comedy_table'
+actor_counts <- Comedy_table %>%
+  group_by(actor_1_name) %>%
+  summarise(count = n())
+
+# Filter out actors with appearances less than 5
+actors_to_remove <- actor_counts %>%
+  filter(count < 5) %>%
+  pull(actor_1_name)
+
+# Remove rows with actors to be removed from 'Comedy_table'
+Comedy_table_filtered <- Comedy_table %>%
+  filter(!actor_1_name %in% actors_to_remove)
+
+# Display the result using gt
+Comedy_table_filtered %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Filtered Action Table")
+
+Comedy_table_filtered %>% summary() %>% kable() %>% head()
+
+# Check the total count of unique actor_1_name in 'Comedy_table_filtered'
+total_unique_actors <- Comedy_table_filtered %>%
+  summarise(total_actors = n_distinct(actor_1_name))
+# Display the result as text
+cat("But in 526 rows, it actually only", total_unique_actors$total_actors, "actors.")
+```
+
+Cal the actor imdb 
+```{r, echo=FALSE}
+# Calculate the average imdb_score for each actor appearing more than 5 times
+actor_avg_scores <- Comedy_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(imdb_actor = mean(imdb_score, na.rm = TRUE))
+
+# Merge the actor_avg_scores back into 'Comedy_table_filtered'
+Comedy_table_with_avg <- left_join(Comedy_table_filtered, actor_avg_scores, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, imdb_actor, and ranking
+actor_ranking_table <- actor_avg_scores %>%
+  arrange(desc(imdb_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, imdb_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table
+actor_ranking_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table, aes(x = actor_1_name, y = imdb_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", imdb_actor), y = imdb_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor IMDb Scores and Rankings on Comedy genres",
+    x = "Actor Name",
+    y = "Average IMDb Score",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(6, 8)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Thriller Table
+
+Put chart and comment of that chart
+
+Check in each genres_table that if actor_1_name appear less than 5 times remove that line out of table
+
+```{r, echo=FALSE}
+# Check the count of each actor's appearances in 'Thriller_table'
+actor_counts <- Thriller_table %>%
+  group_by(actor_1_name) %>%
+  summarise(count = n())
+
+# Filter out actors with appearances less than 5
+actors_to_remove <- actor_counts %>%
+  filter(count < 5) %>%
+  pull(actor_1_name)
+
+# Remove rows with actors to be removed from 'Thriller_table'
+Thriller_table_filtered <- Thriller_table %>%
+  filter(!actor_1_name %in% actors_to_remove)
+
+# Display the result using gt
+Thriller_table_filtered %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Filtered Action Table")
+
+Thriller_table_filtered %>% summary() %>% kable() %>% head()
+
+# Check the total count of unique actor_1_name in 'Thriller_table_filtered'
+total_unique_actors <- Thriller_table_filtered %>%
+  summarise(total_actors = n_distinct(actor_1_name))
+# Display the result as text
+cat("But in 371 rows, it actually only", total_unique_actors$total_actors, "actors.")
+```
+
+Cal the actor imdb 
+```{r, echo=FALSE}
+# Calculate the average imdb_score for each actor appearing more than 5 times
+actor_avg_scores <- Thriller_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(imdb_actor = mean(imdb_score, na.rm = TRUE))
+
+# Merge the actor_avg_scores back into 'Thriller_table_filtered'
+Thriller_table_with_avg <- left_join(Thriller_table_filtered, actor_avg_scores, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, imdb_actor, and ranking
+actor_ranking_table <- actor_avg_scores %>%
+  arrange(desc(imdb_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, imdb_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table
+actor_ranking_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table, aes(x = actor_1_name, y = imdb_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", imdb_actor), y = imdb_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor IMDb Scores and Rankings on Thriller genres",
+    x = "Actor Name",
+    y = "Average IMDb Score",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(6, 8)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Action Table
+
+Put chart and comment of that chart
+
+Check in each genres_table that if actor_1_name appear less than 5 times remove that line out of table
+
+```{r, echo=FALSE}
+# Check the count of each actor's appearances in 'Action_table'
+actor_counts <- Action_table %>%
+  group_by(actor_1_name) %>%
+  summarise(count = n())
+
+# Filter out actors with appearances less than 5
+actors_to_remove <- actor_counts %>%
+  filter(count < 5) %>%
+  pull(actor_1_name)
+
+# Remove rows with actors to be removed from 'Action_table'
+Action_table_filtered <- Action_table %>%
+  filter(!actor_1_name %in% actors_to_remove)
+
+# Display the result using gt
+Action_table_filtered %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Filtered Action Table")
+
+Action_table_filtered %>% summary() %>% kable() %>% head()
+
+# Check the total count of unique actor_1_name in 'Action_table_filtered'
+total_unique_actors <- Action_table_filtered %>%
+  summarise(total_actors = n_distinct(actor_1_name))
+# Display the result as text
+cat("But in 335 rows, it actually only", total_unique_actors$total_actors, "actors.")
+```
+
+Cal the actor imdb 
+```{r, echo=FALSE}
+# Calculate the average imdb_score for each actor appearing more than 5 times
+actor_avg_scores <- Action_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(imdb_actor = mean(imdb_score, na.rm = TRUE))
+
+# Merge the actor_avg_scores back into 'Action_table_filtered'
+Action_table_with_avg <- left_join(Action_table_filtered, actor_avg_scores, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, imdb_actor, and ranking
+actor_ranking_table <- actor_avg_scores %>%
+  arrange(desc(imdb_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, imdb_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table
+actor_ranking_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table, aes(x = actor_1_name, y = imdb_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", imdb_actor), y = imdb_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor IMDb Scores and Rankings on Action Genres",
+    x = "Actor Name",
+    y = "Average IMDb Score",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(6, 8)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Romance Table
+
+Put chart and comment of that chart
+
+Check in each genres_table that if actor_1_name appear less than 5 times remove that line out of table
+
+```{r, echo=FALSE}
+# Check the count of each actor's appearances in 'Romance_table'
+actor_counts <- Romance_table %>%
+  group_by(actor_1_name) %>%
+  summarise(count = n())
+
+# Filter out actors with appearances less than 5
+actors_to_remove <- actor_counts %>%
+  filter(count < 5) %>%
+  pull(actor_1_name)
+
+# Remove rows with actors to be removed from 'Drama_table'
+Romance_table_filtered <- Romance_table %>%
+  filter(!actor_1_name %in% actors_to_remove)
+
+# Display the result using gt
+Romance_table_filtered %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Filtered Action Table")
+
+Romance_table_filtered %>% summary() %>% kable() %>% head()
+
+# Check the total count of unique actor_1_name in 'Romance_table_filtered'
+total_unique_actors <- Romance_table_filtered %>%
+  summarise(total_actors = n_distinct(actor_1_name))
+# Display the result as text
+cat("But in 175 rows, it actually only", total_unique_actors$total_actors, "actors.")
+```
+
+Cal the actor imdb 
+```{r, echo=FALSE}
+# Calculate the average imdb_score for each actor appearing more than 5 times
+actor_avg_scores <- Romance_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(imdb_actor = mean(imdb_score, na.rm = TRUE))
+
+# Merge the actor_avg_scores back into 'Romance_table_filtered'
+Romance_table_with_avg <- left_join(Romance_table_filtered, actor_avg_scores, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, imdb_actor, and ranking
+actor_ranking_table <- actor_avg_scores %>%
+  arrange(desc(imdb_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, imdb_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table
+actor_ranking_table %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table, aes(x = actor_1_name, y = imdb_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", imdb_actor), y = imdb_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor IMDb Scores and Rankings on Romance genres",
+    x = "Actor Name",
+    y = "Average IMDb Score",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(6, 8)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+
+# V. Modeling based on ROI_perc {.tabset}
+
+## Drama Table
+Cal the actor ROI 
+```{r, echo=FALSE}
+# Calculate the average ROI_perc for each actor appearing more than 5 times
+actor_avg_roi <- Drama_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(roi_actor = mean(ROI_perc, na.rm = TRUE))
+
+# Merge the actor_avg_roi back into 'Drama_table_filtered'
+Drama_table_with_avg_roi <- left_join(Drama_table_filtered, actor_avg_roi, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, roi_actor, and ranking
+actor_ranking_table_roi <- actor_avg_roi %>%
+  arrange(desc(roi_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, roi_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table_roi
+actor_ranking_table_roi %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table_roi, aes(x = actor_1_name, y = roi_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", roi_actor), y = roi_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor ROI_perc and Rankings on Drama genres",
+    x = "Actor Name",
+    y = "Average ROI_perc",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(300, 1800)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Comedy Table
+
+Cal the actor ROI 
+```{r, echo=FALSE}
+# Calculate the average ROI_perc for each actor appearing more than 5 times
+actor_avg_roi <- Comedy_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(roi_actor = mean(ROI_perc, na.rm = TRUE))
+
+# Merge the actor_avg_roi back into 'Comedy_table_filtered'
+Comedy_table_with_avg_roi <- left_join(Comedy_table_filtered, actor_avg_roi, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, roi_actor, and ranking
+actor_ranking_table_roi <- actor_avg_roi %>%
+  arrange(desc(roi_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, roi_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table_roi
+actor_ranking_table_roi %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table_roi, aes(x = actor_1_name, y = roi_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", roi_actor), y = roi_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor ROI_perc and Rankings on Comedy genres",
+    x = "Actor Name",
+    y = "Average ROI_perc",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(200, 850)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Thriller Table
+
+Cal the actor ROI 
+```{r, echo=FALSE}
+# Calculate the average ROI_perc for each actor appearing more than 5 times
+actor_avg_roi <- Thriller_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(roi_actor = mean(ROI_perc, na.rm = TRUE))
+
+# Merge the actor_avg_roi back into 'Thriller_table_filtered'
+Thriller_table_with_avg_roi <- left_join(Thriller_table_filtered, actor_avg_roi, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, roi_actor, and ranking
+actor_ranking_table_roi <- actor_avg_roi %>%
+  arrange(desc(roi_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, roi_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table_roi
+actor_ranking_table_roi %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table_roi, aes(x = actor_1_name, y = roi_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", roi_actor), y = roi_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor ROI_perc and Rankings on Thriller genres",
+    x = "Actor Name",
+    y = "Average ROI_perc",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(50, 300)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Action Table
+Cal the actor ROI 
+```{r, echo=FALSE}
+# Calculate the average ROI_perc for each actor appearing more than 5 times
+actor_avg_roi <- Action_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(roi_actor = mean(ROI_perc, na.rm = TRUE))
+
+# Merge the actor_avg_roi back into 'Action_table_filtered'
+Action_table_with_avg_roi <- left_join(Action_table_filtered, actor_avg_roi, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, roi_actor, and ranking
+actor_ranking_table_roi <- actor_avg_roi %>%
+  arrange(desc(roi_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, roi_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table_roi
+actor_ranking_table_roi %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table_roi, aes(x = actor_1_name, y = roi_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", roi_actor), y = roi_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor ROI_perc and Rankings on Action genres",
+    x = "Actor Name",
+    y = "Average ROI_perc",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(50, 650)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+## Romance Table
+Cal the actor ROI 
+```{r, echo=FALSE}
+# Calculate the average ROI_perc for each actor appearing more than 5 times
+actor_avg_roi <- Romance_table_filtered %>%
+  group_by(actor_1_name) %>%
+  summarise(roi_actor = mean(ROI_perc, na.rm = TRUE))
+
+# Merge the actor_avg_roi back into 'Romance_table_filtered'
+Romance_table_with_avg_roi <- left_join(Romance_table_filtered, actor_avg_roi, by = "actor_1_name")
+
+# Display the first few rows of the merged table
+#head(Action_table_with_avg)
+
+# Create a table with actor names, roi_actor, and ranking
+actor_ranking_table_roi <- actor_avg_roi %>%
+  arrange(desc(roi_actor)) %>%
+  mutate(ranking = row_number()) %>%
+  select(actor_1_name, roi_actor, ranking) %>%
+  filter(ranking <= 10)
+
+# Display the actor_ranking_table_roi
+actor_ranking_table_roi %>%
+  head() %>%
+  gt() %>%
+  tab_spanner(label = "Variable") %>%
+  tab_caption("Actor ranking Table")
+```
+
+Create bar chart
+```{r}
+# Create a bar chart with scaled y-axis and rotated x-axis labels
+bar_chart_scaled <- ggplot(actor_ranking_table_roi, aes(x = actor_1_name, y = roi_actor, fill = factor(ranking))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", roi_actor), y = roi_actor), vjust = -0.5) +  # Add value labels
+  scale_fill_viridis_d() +
+  labs(
+    title = "Actor ROI_perc and Rankings on Romance genres",
+    x = "Actor Name",
+    y = "Average ROI_perc",
+    fill = "Ranking"
+  ) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(100, 350)) +  # Set y-axis limit
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+# Display the scaled bar chart
+print(bar_chart_scaled)
+```
+
+# VI. Evaluation {.tabset}
+
+Evaluate results
+Review process
+
+# VII. Deployment {.tabset}
+ 
+Final Report

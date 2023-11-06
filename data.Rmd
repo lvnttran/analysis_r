@@ -1,0 +1,102 @@
+---
+title: "Data Analysis"
+subtitle: "This is ver demo.R "
+author: "Tam, Nauman, Sushant, Ahmad, Istasam"
+date:  "`r Sys.Date()`"
+fontsize: 11pt
+output:
+  rmdformats::readthedown:
+  number_sections: true
+---
+
+```{r setup, include=FALSE, cache=FALSE}
+## Libraries
+## You may have to install these libraries first 
+## with the tab on bottom right panel : "Packages" ; click install
+## or : install.packages("ggplot2")   - don't forget the ""
+library(knitr)
+library(rmdformats)
+
+## Global options
+knitr::opts_chunk$set(               # On définit ici les comportements par défaut des capsules dans le document produit html
+               echo=T,        # pour afficher les lignes de code (FALSE pour les cacher ; mais elles seront executer)
+               eval=TRUE,     # pour executer les capsules de code
+	             message=FALSE, # pour que les messages de R ne soient pas affichés dans le doc html
+               warning=FALSE) # pour que les alertes de R ne soient pas affichés dans le doc html
+knitr::opts_knit$set(width=75)  
+options(max.print="75")       # pour définir le nombre d'éléments afficher par R
+
+options(max.print="75")
+opts_chunk$set(echo=T,    # pour afficher les lignes de code (FALSE pour les cacher ; mais elles seront executer)  
+               eval=TRUE, # pour executer les capsules de code
+               message=FALSE,  # pour que les messages de R ne soient pas affichés dans le doc html
+               warning=FALSE)  # pour que les alertes de R ne soient pas affichés dans le doc html
+opts_knit$set(width=75)  # pour définir le nombre d'éléments afficher par R
+```
+
+<!-- Enoncé -->
+
+Objectives are to analyse the TV shows proposed by Netflix between sept 2020 and march 2022.
+Data were extracted from Kaggle.
+
+
+# Data Management {.tabset}
+
+## RMarkdown préparation
+
+```{r}
+library(rmdformats)
+library(skimr)
+library(readr)
+library(dplyr)
+library(anytime)
+```
+
+## Data loading
+
+```{r}
+movies <- load("Movie.Data_Complete.RData")
+```
+
+# Recommend Sys {.tabset}
+
+## Create a function to recommend a movie
+```{r}
+recommend_movie <- function(user_preferences) {
+  # Identify the factors that influence the user's decision to watch a film
+  factors <- c("genres", "cast", "director", "rating")
+
+  # Create a new data frame with the genre column as the only variable
+  movies <- data.frame(genre = movies$genres)
+
+  # Convert the genre column to a factor variable
+  movies <- movies %>% mutate(genre = as.factor(genres))
+
+  # Find the movies that match the user's preferences
+  recommended_movies <- movies[factor(movies$genres, levels = user_preferences$genres) & factor(movies$cast, levels = user_preferences$cast) & factor(movies$director, levels = user_preferences$director) & movies$rating >= user_preferences$rating,]
+
+  # Return the recommended movies
+  return(recommended_movies)
+}
+
+```
+
+## Get the user's preferences
+```{r}
+user_preferences <- list(
+  genre = readline("What is your favorite genre? "),
+  cast = readline("What is your favorite actor/actress? "),
+  director = readline("What is your favorite director? "),
+  rating = readline("What is the minimum rating you would like to see? ")
+)
+```
+
+## Recommend a movie to the user
+```{r}
+recommended_movie <- recommend_movie(user_preferences)
+```
+
+## Print the recommended movie
+```{r}
+print(recommended_movie)
+```
