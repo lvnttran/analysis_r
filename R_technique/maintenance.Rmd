@@ -1,0 +1,375 @@
+---
+title: "Predicting machine failure using R"
+author: "Tam TRAN, Sushant, Ahmad, Anish"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+subtitle: "Working with real-world dataset to predict machine failure"
+---
+
+
+
+# Context
+
+In the session 1 & 2, you have seen how to load, explore, split your dataset 
+into training and testing set. You also have seen how to properly train a model using
+cross-validation, and how to find the best hyper-parameters for your model.
+You have also seen how to evaluate your model using different metrics: accuracy, precision, recall, F1-score.
+For this, you have worked on a dataset which has a small number of observations, with the same number of positive and negative observations.
+
+In this session, you will work on a real-world dataset for machine failure prediction, with a large number of observations.
+Keep in mind that this dataset comes from a real-world situation, which means that machine failures **may not happen frequently**.
+
+**Warning**: *it is important to not only provide an executable code, but also to provide a clear explanation of your code and results*.
+
+```{r Packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(caret)
+library(rpart.plot)
+library(ggplot2)
+library(ROSE)
+library(SMOTEWB)
+```
+
+```{r cls, message=FALSE, echo=FALSE}
+rm(list = ls())
+```
+
+# Exploratory Data Analysis
+
+In this section, you will load the new dataset, and you will perform exploratory data analysis.
+The methodological steps are the same as in the previous sessions.
+
+**Question**: Describe the dataset. How is it different from the one you have worked on in the previous sessions?
+
+```{r Dataset, message=FALSE}
+set.seed(47)
+# Load the data
+data <- readr::read_delim("maintenance_predictive.csv", delim = ",")
+```
+
+```{r Split, message=FALSE, echo=FALSE, results='hide'}
+create_scaled_dataset <- function(data) {
+  X <- data[, 3:9]
+  X$MachineFailure <- as.factor(X$MachineFailure)
+  X[, 2:6] <- scale(X[, 2:6])
+  return(X)
+}
+
+split_dataset <- function(X) {
+  index <- createDataPartition(X$MachineFailure, p = 0.8, list = FALSE)
+  X_train <- X[index, ]
+  X_test <- X[-index, ]
+  return(list(X_train, X_test))
+}
+
+compute_metrics <- function(actual, predicted) {
+  predicted <- relevel(as.factor(predicted), "1")
+  actual <- relevel(as.factor(actual), "1")
+  xtab <- table(predicted, actual)
+  cm <- confusionMatrix(xtab)$table
+  rec <- recall(xtab)
+  prec <- precision(xtab)
+  f1 <- F_meas(xtab)
+  return(list(cm, rec, prec, f1))
+}
+
+X <- create_scaled_dataset(data)
+X_train_test <- split_dataset(X)
+X_train <- X_train_test[[1]]
+X_test <- X_train_test[[2]]
+
+table(X_train$MachineFailure)
+table(X_test$MachineFailure)
+```
+
+
+
+# Training a first model
+
+Now that you got familiar with the dataset, you will train a first model of your choice on the dataset.
+Follow the steps we presented in the previous sessions.
+
+- Prepare the dataset: choose your features and target, scale the features;
+- Split the dataset into training and test set;
+- Train a model of your choice;
+- Evaluate the model using different metrics on the test set.
+
+**Question**: How is the accuracy of your model on the test set? How is the F1-score? How do you explain these results?
+--> The high accuracy of the model (97.15%) might be misleading due to the class imbalance in the dataset (9661 instances of label '0' and only 339 instances of label '1'). This imbalance can skew the model's predictions towards the majority class ('0'), leading to high accuracy but poor performance in correctly predicting the minority class ('1').
+The low recall (19.40%) indicates that the model struggles to correctly identify instances of the minority class ('1'). This is further supported by the low F1-score (31.33%), which highlights the model's inability to balance precision and recall effectively, especially for the minority class.
+
+```{r logit model}
+# train a logistic regression model using 5-fold cross-validation
+lr_model <- train(MachineFailure ~ .,
+  data = X_train, method = "glm",
+  trControl = trainControl(method = "cv", number = 5),
+  metric = "Accuracy"
+)
+```
+
+```{r logit model compute, echo=FALSE}
+lr_model
+lr_pred <- predict(lr_model, X_test)
+accuracy_lr <- mean(lr_pred == X_test$MachineFailure)
+accuracy_lr
+
+# compute the confusion matrix, recall, precision, and F1-score
+lr_metrics <- compute_metrics(X_test$MachineFailure, lr_pred)
+lr_cm <- lr_metrics[[1]]
+lr_rec <- lr_metrics[[2]]
+lr_prec <- lr_metrics[[3]]
+lr_f1 <- lr_metrics[[4]]
+
+# print the results
+print("Confusion matrix:")
+print(lr_cm)
+print(paste("Recall:", lr_rec))
+print(paste("Precision:", lr_prec))
+print(paste("F1-score:", lr_f1))
+```
+
+
+
+# Working with imbalanced dataset
+
+As you might have guessed, the dataset you are working on is imbalanced (number of positive observations is much smaller than the number of negative observations).
+Your goal here is to find a way to improve the performance of your model with this dataset.
+There are several ways to do that. It depends on the type of model you are using.
+
+There are some general techniques such as *oversampling*, *undersampling* or *SMOTE* **(a quick search will feed you with details)**.
+Some model can also handle imbalanced dataset by themselves, by specifying class weights.
+**Choose the method that suits you best, but explain briefly how it works and where it comes from**.
+
+**Question**: 
+Choose two models: 
+one **parametric** (Logit / SVM / NN) 
+and one **non-parametric** (Decision Tree / KNN).
+For each model, try to improve the performance on this dataset, by handling the imbalance (Down-sampling / Over-sampling / SMOTE).
+
+```{r To use, eval = FALSE, echo=FALSE}
+# 
+number <- "123" # Replace by one of your birthday dates
+set.seed(number)
+param <- sample(c("Logit", "SVM", "NN"), 1)
+nparam <- sample(c("DT", "KNN"), 1)
+sampling <- sample(c("Down-sampling", "Over-sampling", "SMOTE"))
+```
+
+```{r Imbalanced data for Logit Over}
+# Perform oversampling to balance the dataset
+X_train_oversampled <- ovun.sample(MachineFailure ~ ., data = X_train, method = "over", p=0.5, seed = 123)$data
+
+# Retrain the with balance
+lr_model_oversampled <- train(MachineFailure ~ .,
+                              data = X_train_oversampled,
+                              method = "glm",
+                              trControl = trainControl(method = "cv", number = 5),
+                              metric = "Accuracy")
+```
+
+```{r logit over model compute, echo=FALSE}
+lr_model_oversampled
+lr_pred_oversampled <- predict(lr_model_oversampled, X_test)
+accuracy_lr_oversampled <- mean(lr_pred_oversampled == X_test$MachineFailure)
+accuracy_lr_oversampled
+
+# compute the confusion matrix, recall, precision, and F1-score
+lr_metrics_oversampled <- compute_metrics(X_test$MachineFailure, lr_pred_oversampled)
+
+# Print the results
+print("Confusion matrix (Oversampling):")
+print(lr_metrics_oversampled[[1]])
+print(paste("Recall (Oversampling):", lr_metrics_oversampled[[2]]))
+print(paste("Precision (Oversampling):", lr_metrics_oversampled[[3]]))
+print(paste("F1-score (Oversampling):", lr_metrics_oversampled[[4]]))
+```
+
+```{r Imbalanced data for Logit Under}
+X_train_downsampled <- ovun.sample(MachineFailure ~ ., data = X_train, method = "under", p=0.5, seed = 123)$data
+
+# Retrain the model with balanced dataset
+lr_model_downsampled <- train(MachineFailure ~ .,
+                              data = X_train_downsampled,
+                              method = "glm",
+                              trControl = trainControl(method = "cv", number = 5),
+                              metric = "Accuracy")
+```
+
+```{r logit under model compute, echo=FALSE}
+lr_model_downsampled
+lr_pred_downsampled <- predict(lr_model_downsampled, X_test)
+accuracy_lr_downsampled <- mean(lr_pred_oversampled == X_test$MachineFailure)
+accuracy_lr_downsampled
+
+# compute the confusion matrix, recall, precision, and F1-score
+lr_metrics_downsampled <- compute_metrics(X_test$MachineFailure, lr_pred_downsampled)
+
+# Print the results
+print("Confusion matrix (Down-sampling):")
+print(lr_metrics_downsampled[[1]])
+print(paste("Recall (Down-sampling):", lr_metrics_downsampled[[2]]))
+print(paste("Precision (Down-sampling):", lr_metrics_downsampled[[3]]))
+print(paste("F1-score (Down-sampling):", lr_metrics_downsampled[[4]]))
+```
+
+
+```{r Imbalanced data for Logit SMOTE}
+X_train$MachineFailure <- as.factor(X_train$MachineFailure)
+X_train_smote <- SMOTE(X_train[, 2:6], X_train$MachineFailure, k = 5)
+
+X_train_smote_df <- as.data.frame(X_train_smote$x_new)
+X_train_smote_df_y <- as.data.frame(X_train_smote$y_new)
+names(X_train_smote_df_y)[1] <- "MachineFailure"
+X_train_smote_df <- cbind(X_train_smote_df, X_train_smote_df_y)
+
+# Retrain the model with balanced dataset
+lr_model_smote <- train(MachineFailure ~ .,
+                        data = X_train_smote_df,
+                        method = "glm",
+                        trControl = trainControl(method = "cv", number = 5),
+                        metric = "Accuracy")
+```
+
+```{r logit smote model compute, echo=FALSE}
+lr_model_smote
+lr_pred_smote <- predict(lr_model_smote, X_test)
+accuracy_lr_smote <- mean(lr_pred_smote == X_test$MachineFailure)
+accuracy_lr_smote
+
+# Compute the confusion metrics, recall, precision, and F1-score
+lr_metrics_smote <- compute_metrics(X_test$MachineFailure, lr_pred_smote)
+
+# Print the results
+print("Confusion matrix (SMOTE):")
+print(lr_metrics_smote[[1]])
+print(paste("Recall (SMOTE):", lr_metrics_smote[[2]]))
+print(paste("Precision (SMOTE):", lr_metrics_smote[[3]]))
+print(paste("F1-score (SMOTE):", lr_metrics_smote[[4]]))
+```
+
+```{r DT model}
+# train a logistic regression model using 5-fold cross-validation
+dt_model <- train(MachineFailure ~ .,
+                  data = X_train,
+                  method = "rpart",
+                  trControl = trainControl(method = "cv", number = 5),
+                  metric = "Accuracy")
+```
+
+```{r dt model compute, echo=FALSE}
+dt_model
+dt_pred <- predict(dt_model, X_test)
+accuracy_dt <- mean(dt_pred == X_test$MachineFailure)
+accuracy_dt
+
+# compute the confusion matrix, recall, precision, and F1-score
+dt_metrics <- compute_metrics(X_test$MachineFailure, dt_pred)
+
+# Print the results
+print("Confusion matrix:")
+print(dt_metrics[[1]])
+print(paste("Recall:", dt_metrics[[2]]))
+print(paste("Precision:", dt_metrics[[3]]))
+print(paste("F1-score:", dt_metrics[[4]]))
+```
+
+```{r Imbalanced data for DT Over}
+# Retrain the with balance
+dt_model_oversampled <- train(MachineFailure ~ .,
+                              data = X_train_oversampled,
+                              method = "rpart",
+                              trControl = trainControl(method = "cv", number = 5),
+                              metric = "Accuracy")
+```
+
+```{r dt model over compute, echo=FALSE}
+dt_model_oversampled
+dt_pred_oversampled <- predict(dt_model_oversampled, X_test)
+accuracy_dt_oversampled <- mean(dt_pred_oversampled == X_test$MachineFailure)
+accuracy_dt_oversampled
+
+# compute the confusion matrix, recall, precision, and F1-score
+dt_metrics_oversampled <- compute_metrics(X_test$MachineFailure, dt_pred_oversampled)
+
+# Print the results
+print("Confusion matrix (Oversampling):")
+print(dt_metrics_oversampled[[1]])
+print(paste("Recall (Oversampling):", dt_metrics_oversampled[[2]]))
+print(paste("Precision (Oversampling):", dt_metrics_oversampled[[3]]))
+print(paste("F1-score (Oversampling):", dt_metrics_oversampled[[4]]))
+```
+
+```{r Imbalanced data for DT Under}
+# Retrain the model with balanced dataset
+dt_model_downsampled <- train(MachineFailure ~ .,
+                              data = X_train_downsampled,
+                              method = "rpart",
+                              trControl = trainControl(method = "cv", number = 5),
+                              metric = "Accuracy")
+
+```
+
+```{r dt under model compute, echo=FALSE}
+dt_model_downsampled
+dt_pred_downsampled <- predict(dt_model_downsampled, X_test)
+accuracy_dt_downsampled <- mean(dt_pred_oversampled == X_test$MachineFailure)
+accuracy_dt_downsampled
+
+# compute the confusion matrix, recall, precision, and F1-score
+dt_metrics_downsampled <- compute_metrics(X_test$MachineFailure, dt_pred_downsampled)
+
+# Print the results
+print("Confusion matrix (Down-sampling):")
+print(dt_metrics_downsampled[[1]])
+print(paste("Recall (Down-sampling):", dt_metrics_downsampled[[2]]))
+print(paste("Precision (Down-sampling):", dt_metrics_downsampled[[3]]))
+print(paste("F1-score (Down-sampling):", dt_metrics_downsampled[[4]]))
+```
+
+```{r Imbalanced data for DT SMOTE}
+dt_model_smote <- train(MachineFailure ~ .,
+                        data = X_train_smote_df,
+                        method = "rpart",
+                        trControl = trainControl(method = "cv", number = 5),
+                        metric = "Accuracy")
+
+```
+
+```{r dt smote model compute, echo=FALSE}
+dt_model_smote
+dt_pred_smote <- predict(dt_model_smote, X_test)
+accuracy_dt_smote <- mean(dt_pred_smote == X_test$MachineFailure)
+accuracy_dt_smote
+
+# compute the confusion matrix, recall, precision, and F1-score
+dt_metrics_smote <- compute_metrics(X_test$MachineFailure, dt_pred_smote)
+
+# Print the results
+print("Confusion matrix (SMOTE):")
+print(dt_metrics_smote[[1]])
+print(paste("Recall (SMOTE):", dt_metrics_smote[[2]]))
+print(paste("Precision (SMOTE):", dt_metrics_smote[[3]]))
+print(paste("F1-score (SMOTE):", dt_metrics_smote[[4]]))
+```
+
+**Question**: Report your results on this table, and compare them with the model with no imbalance handling.
+
+| Model   | Imbalance handling                            | Accuracy | Precision | Recall | F1-score |
+|---------|-----------------------------------------------|----------|-----------|--------|----------|
+| model_1 |  Logit None                                   |   0.97   |    0.81   |  0.19  |   0.31   |
+| model_1 |  Logit Over                                   |   0.82   |    0.14   |  0.86  |   0.24   |
+| model_1 |  Logit Under                                  |   0.82   |    0.13   |  0.86  |   0.23   |
+| model_1 |  Logit SMOTE                                  |   0.82   |    0.14   |  0.86  |   0.24   |
+| model_2 |  DT None                                      |   0.97   |    0.78   |  0.32  |   0.46   |
+| model_2 |  DT Over                                      |   0.82   |    0.13   |  0.79  |   0.22   |
+| model_2 |  DT Under                                     |   0.82   |    0.11   |  0.83  |   0.19   |
+| model_2 |  DT SMOTE                                     |   0.76   |    0.10   |  0.82  |   0.19   |
+
+
+**Remarks**:
+
+- **None** means that you have not used any imbalance handling technique. **imbalance handling technique** means that you have used one of the imbalance handling techniques.*
+- replace **model_1** and **model_2** by the name of the models you have used.

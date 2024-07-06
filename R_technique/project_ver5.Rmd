@@ -1,0 +1,483 @@
+---
+title: "Data Science Project - supervised classification"
+author: "Tam TRAN, Sushant, Irtasam, Samuel"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+institute: Grenoble INP
+subtitle: ''
+---
+
+```{r, echo=FALSE}
+rm(list = ls())
+```
+
+
+```{r, echo=FALSE}
+# Permit to define 'size="tiny" or other in chunk
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+
+knitr::opts_chunk$set(fig.align = "center", message=FALSE, warning=FALSE, echo = F,
+                      paged.print=FALSE, size='footnotesize', 
+                      out.height="80%", out.width = "75%", 
+                      fig.height=4, fig.width=5, fig.show='hold',
+                      fig.align='center')
+```
+
+```{r echo=FALSE, include=FALSE, warning=FALSE}
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(faraway)
+```
+
+
+Let us consider the ResumeNames dataset; The objective is to characterize if some characteristics such as the name and the ethnicity influence the decision of a company to contact a candidate, based on their resume. 
+
+Let us load the data.
+
+```{r echo=FALSE, eval=TRUE , results='markdown' , size='footnotesize', warning=FALSE, message=FALSE}
+## Load the dataset
+library(AER)
+data(ResumeNames)
+ResumeNames$minimum <- as.numeric(ResumeNames$minimum)
+str(ResumeNames)
+
+data_ori <- ResumeNames
+```
+
+Recall that `help(ResumeNames)` in the Console will give you the description of the dataset.
+
+The variable we want to explain is, hence, `call`. It is equal to 1 if the company called back the candidate after seeing their resume. The explicative variables belong to three categories:
+
+* the quality of the resume: experiences, computer skills, school levels...
+
+* personal information: gender, ethnicity and names
+
+* characteristics the job: type of industry, type of position and requirements of the ad.
+
+The objective is to see if the 3 variables linked to personal information influence the variable `call`.
+
+# Preliminary question
+
+Why is it necessary to consider also the variables measuring the quality of the resume and the characteristics of the job, even if we are interested in the influence of the personal variables?
+
+--> the idea that maybe other group may effect to personal var and also personal var may effect to other group so i found some thing like this.
+
+Confounding Factors: The influence of personal variables on the outcome variable  may be confounded by other factors related to resume quality and job characteristics. Failing to account for these factors could lead to biased or misleading conclusions about the true effect of personal variables.call
+
+Interaction Effects: There may be interaction effects between personal variables and variables related to resume quality and job characteristics. For example, the effect of gender or ethnicity on the likelihood of receiving a call back may depend on the level of education or the type of industry. Ignoring these interactions could lead to an incomplete understanding of the relationships between variables.
+
+<!-------------------------------------------------------------------------------------------------->
+<!-------------------------------------------  Q1  ------------------------------------------------->
+<!-------------------------------------------------------------------------------------------------->
+
+# Q1. Missing values ----------------------
+
+Check the presence of missing values.
+```{r}
+na_count <- sapply(data_ori, function(x) sum(is.na(x)))
+for (col_name in names(data_ori)) {
+  cat(paste("No. NA value in col",col_name, "is:", na_count[col_name], "\n"))
+}
+```
+
+<!-------------------------------------------------------------------------------------------------->
+<!-------------------------------------------  Q2  ------------------------------------------------->
+<!-------------------------------------------------------------------------------------------------->
+
+# Q2. Descriptive statistics ---------------------
+
+The objective here is to look at the influence of the personal variables, `ethnicity`, `gender` and `name`, on the variable `call`, which tells if the enterprise call back the candidate. 
+
+# Q2.1.
+
+Plot the variable `call` with respect to `ethnicity`. Does the influence of variable `ethnicity` seem important?
+```{r}
+ggplot(data_ori, aes(x = ethnicity, fill = call)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Candidates Called Back by Ethnicity",
+       x = "Ethnicity",
+       y = "Proportion",
+       fill = "Call Back") +
+  scale_fill_manual(values = c("no" = "#C5C5C5", "yes" = "#656565"))
+```
+# Q2.2.
+
+Plot the variable `call` with respect to `gender`. Does the influence of variable `gender` seem important?
+```{r}
+ggplot(data_ori, aes(x = gender, fill = call)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Candidates Called Back by Gender",
+       x = "Gender",
+       y = "Proportion",
+       fill = "Call Back") +
+  scale_fill_manual(values = c("no" = "#C5C5C5", "yes" = "#656565"))
+```
+## Q2.3.
+
+Plot the variable `call` with respect to `name`. Does the influence of variable `name` seem important?
+```{r}
+ggplot(data_ori, aes(x = reorder(name, as.numeric(call)), fill = call)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Candidates Called Back by Name",
+       x = "Name",
+       y = "Proportion",
+       fill = "Call Back") +
+  scale_fill_manual(values = c("no" = "#C5C5C5", "yes" = "#656565")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Indication: you can use the command `reorder(ResumeNames$name, as.numeric(ResumeNames$call))` which reorder the names with respect to the proportion of positive `call`, to obtain a better plot.
+
+
+## Q2.4. 
+
+Plot `gender` and `ethnicity` with respect to the variable `name`. 
+```{r}
+ggplot(data_ori, aes(x = reorder(name, as.numeric(call)), fill = gender)) +
+  geom_bar(position = "stack") +
+  labs(title = "Gender and Ethnicity Distribution by Name",
+       x = "Name",
+       y = "Frequency",
+       fill = "Gender") +
+  scale_fill_manual(values = c("male" = "#C5C5C5", "female" = "#656565")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+<!-------------------------------------------------------------------------------------------------->
+<!-------------------------------------------  Q3  ------------------------------------------------->
+<!-------------------------------------------------------------------------------------------------->
+
+# Q3. Multiple Components Analysis ------------------
+
+## Q3.1. 
+```{r}
+### Check quantitative variables and qualitative variables 
+quantitative_vars <- sapply(data_ori, is.numeric)
+qualitative_vars <- sapply(data_ori, is.factor)
+
+cat("quantitative vars: ")
+names(data_ori)[quantitative_vars]
+cat("qualitative vars: ")
+names(data_ori)[qualitative_vars]
+```
+Transform the quantitative variables into qualitative variable. Create factors with 2 levels for each of them: the first level corresponds to the values below the median and the second level to values higher than the median.
+
+```{r}
+# Calculate the median for the jobs variable
+jobs_median <- median(data_ori$jobs, na.rm = TRUE)
+
+# Create a new factor variable for jobs
+data_ori$jobs_qual <- ifelse(data_ori$jobs <= jobs_median, "Below Median", "Above Median")
+data_ori$jobs_qual <- factor(data_ori$jobs_qual, levels = c("Below Median", "Above Median"))
+
+# Calculate the median for the experience variable
+experience_median <- median(data_ori$experience, na.rm = TRUE)
+
+# Create a new factor variable for experience
+data_ori$experience_qual <- ifelse(data_ori$experience <= experience_median, "Below Median", "Above Median")
+data_ori$experience_qual <- factor(data_ori$experience_qual, levels = c("Below Median", "Above Median"))
+
+# Calculate the median for the minimum variable
+minimum_median <- median(data_ori$minimum, na.rm = TRUE)
+
+# Create a new factor variable for minimum
+data_ori$minimum_qual <- ifelse(data_ori$minimum <= minimum_median, "Below Median", "Above Median")
+data_ori$minimum_qual <- factor(data_ori$minimum_qual, levels = c("Below Median", "Above Median"))
+```
+
+## Q3.2.
+
+Apply a Multiple Components Analysis using the function `MCA()` of package `FactoMineR`, using the option `graph=TRUE`. Consider as supplementary variables the variables which are not directly linked with professional skills, that is, `names`, `gender`, `ethnicity`, and consider also as supplementary variable the variable `call`, which is the answer.
+
+Remark: in a PCA, the part of inertia explained by each axe is important, but not in a MCA, where the values are always small.
+
+
+```{r, warning=FALSE, message=FALSE}
+library(FactoMineR)
+res.mca <- MCA(select_if(data_ori,is.factor), quali.sup = c('call','name', 'gender', 'ethnicity'), graph = TRUE)
+```
+
+## Q3.3. 
+
+How do you interpret the axes?
+
+--> we are going to using the 3rd chart to analysis it - Nauman understand this part could u talk with him to clear this one T.T 
+* First axes: more relative to the personal (include email, volunteer,...)  
+* Second axes: more relative to the job required (included wanted, industry, ...)
+
+And it show that with 2 axes we only take in account of 9.40% + 9.84% data out of dataset and may not really good :3
+
+## Q3.4. 
+
+Are the individuals well distributed? Is it important when studying the influence of the other variables (those which are here represented as supplementary)?
+
+--> hmm not sure about this one T.T
+
+<!-------------------------------------------------------------------------------------------------->
+<!-------------------------------------------  Q4  ------------------------------------------------->
+<!-------------------------------------------------------------------------------------------------->
+
+# Q4. Logistic regression - Simple model ---------------------------
+
+
+## Q4.1.
+
+Let us first try to fit a logistic model explaining `call` with variables `ethnicity` and `gender`. Are the variables significant?
+
+```{r}
+logit0 <- glm(call~gender+ethnicity,data=data_ori,family=binomial(link='logit'))
+summary(logit0)
+```
+based on star so just ethnicity is important and gender is not
+## Q4.2 
+
+Fit a logistic regression model variables `ethnicity`, `gender`, and the variable `name`. What do you observe? Can you explain this? 
+as logit_1
+```{r}
+logit_1<- glm(call~gender+ethnicity+name,data=data_ori,family=binomial(link='logit'))
+summary(logit_1)
+```
+
+--> still based on star and now none of them significant, except nameAisha have a . 
+
+# Q5. Logistic regression - multiple model ------------------------------------
+
+We now also want to consider the other characteristics of the resumes, to be sure that the influence of the name is not due to other variables which were not taken into account. Based on what has been done previously, we remove the variable `name` form the explicative variables.
+
+## Q5.1.
+
+Fit the model with all the variables available.
+*remember in line 173 transform 3 quantitative into 3 qualitative so i think we should remove this to
+```{r, warning=FALSE, message=FALSE}
+data_ori <- subset(data_ori, select = -c(name, jobs, experience, minimum))
+model_full <- glm(call~.,data=data_ori ,family=binomial(link='logit'))
+summary(model_full)
+```
+
+--> So with model_ful we can see some other params like: city, experiance, .. have significant
+Notion: if exist one significant mean all of that group have the relevant (like wanted only wantedoffice have start but the param wanted will have the impact to the model.
+
+## Q5.2.
+
+Apply a selection of variable (it can take some time since there are many variables and the algorithm is iterative) with the function `step()`.
+
+--> Okay so with full model we will have better in predict but it complex so step() use to reduct some param may not have great impact so predict will less "good" than model_full but we it is trade off (based on AIC).
+
+```{r, warning=FALSE, message=FALSE, results='hide', echo=TRUE}
+model_full_step <- step(model_full)
+```
+
+## Q5.3.
+
+Check the validity of the final model, by comparing it with the full model fitted in Q5.1 and with the null model fitted below. 
+
+Recall that the test of comparison between two models is given by the function `anova()` with the option `test='Chisq'`.
+
+```{r}
+model_null <- glm(call~1,data=data_ori,na.action=na.exclude,family=binomial(link='logit'))
+```
+
+```{r}
+print("Compare between model_full_step and model_full")
+anova(model_full_step,model_full,test='Chisq' )
+cat("\n")
+print("Compare between model_full_step and model_null")
+anova(model_full_step,model_null,test='Chisq' )
+```
+--> So in this step we want a high pvalue cuz it mean that 2 model have quite similar quality and similar quality but one is less params so that is better. But currently we have low p-value so model_full may better
+
+Check this one careful :3
+
+## Q5.4.
+
+Look at the variables kept in the model after the selection of variable, using the function `summary()`. Is the variable `gender` kept? Is the variable `ethnicity` kept? Are all the variables significant (at a level 5%)?
+
+--> The result after step() is call ~ ethnicity + quality + city + honors + holes + special + equal + reqeduc + reqcomp + reqorg + industry + experience_qual
+So no gender but still have ethnicity
+
+```{r}
+summary(model_full_step)
+```
+
+## Q5.5.
+
+Fit a new model where you have kept all the model from the selection of variables, except the three non significant variables. Look at the summary. Have the coefficients of other variables changed?
+--> it not change summary(model_full_step) and summary(model_three_non)
+Compare with the last model, with a test of comparison. Is the difference between the models significant? Which one is the most accurate?
+
+```{r}
+summary_step <- summary(model_full_step)
+# Get the top three non-significant variables
+non_significant_variables <- names(sort(summary_step$coefficients[, "Pr(>|z|)"], decreasing = TRUE))
+print(non_significant_variables)
+```
+--> So top 3 highest pvalue is industry, quality and reqorg so we remove it
+```{r}
+# Fit a new model with the selected variables
+model_three_non <- glm(formula = call ~ ethnicity + city + honors + holes + special + equal + reqeduc + reqcomp + experience_qual, family = binomial(link = "logit"), data = data_ori)
+summary(model_three_non)
+```
+
+```{r}
+anova(model_full_step,model_three_non,test='Chisq' )
+```
+--> P-value still low but compare with model_null is much higher so this one is better than null i guess :v. But with low value like this the model_full_step still better
+
+Pls check the ANOVA also :3
+
+# Q6 Quality of prediction -----------------------------
+
+## Q6.1. Training set and test set 
+
+Split the data in two subsets: a training set and a test set, with approximately 80% of observations in the training set. Fit the full model and the model with the only the variables obtained after the variable selection of question Q5.4. on the training set.
+
+```{r separation}
+samples <- sample(c(1,2),size=nrow(data_ori),replace=TRUE,prob=c(0.8,0.2))
+training.set <- data_ori[samples==1,]
+test.set <- data_ori[samples==2,]
+```
+
+```{r training}
+model_full <- glm(call~.,data=training.set,family=binomial(link='logit'))
+model_reduct <- glm(call ~ ethnicity + quality + city + honors + holes + special + equal + reqeduc + reqcomp + reqorg + industry + experience_qual, data=training.set,family=binomial(link='logit'))
+```
+
+
+## Q6.2.
+
+The following lines plot the ROC curves and calculate the AUC for both models on the training set. Which one is the most accurate? Is it surprising?
+--> the AUC value is closer to 1, the model is better at predicting the outcome variable
+```{r, message=FALSE, warning=FALSE}
+library(pROC)
+
+### change the names of the models model_full and model_reduct below, and put your own names.
+
+predict_full <- predict(model_full, newdata= training.set, type=c("response"))
+roc_full <- roc(training.set$call ~ predict_full)
+
+predict_reduct <- predict(model_reduct, newdata= training.set, type=c("response"))
+roc_reduct <- roc(training.set$call ~ predict_reduct)
+
+plot(roc_full,col='red')
+lines(roc_reduct)
+
+cat('AUC for full model:  ', auc(roc_full),'\n')
+cat('AUC for reduct model:', auc(roc_reduct), '\n')
+```
+## Q6.3       
+Now plot the ROC curves and calculate the AUC for both models on the test set. Which one is the most accurate?
+--> The full model cuz the roc higher .,,.
+```{r, warning=FALSE, message=FALSE}
+
+predict_full_test <- predict(model_full, newdata= test.set, type=c("response"))
+roc_full_test <- roc(test.set$call ~ predict_full_test)
+
+predict_reduct_test <- predict(model_reduct, newdata= test.set, type=c("response"))
+roc_reduct_test <- roc(test.set$call ~ predict_reduct_test)
+
+plot(roc_full_test,col='red')
+lines(roc_reduct_test)
+
+cat('AUC for full model with test set:  ', auc(roc_full_test),'\n')
+cat('AUC for reduct model with test set:', auc(roc_reduct_test), '\n')
+```
+
+
+
+
+
+# Q7. Decision Tree -------------------------
+
+## Q7.1. 
+
+Build a decision tree using the function `rpart()` of the package `rpart` with options `maxdepth=3` and `cp=-1`. Look at the importance of the variables. Give the three variables which have the highest importance. Is the variable `name` important? Do you think that this result is coherent?
+
+```{r, message=FALSE, warning=FALSE}
+library(rpart)
+
+data_for_tree <- ResumeNames
+
+# Build the decision tree with maxdepth=3 and cp=-1
+tree <- rpart(call ~ ., data = data_for_tree, maxdepth = 3, cp = -1)
+
+# Check the importance of variables
+var_importance <- round(tree$variable.importance, 2)
+
+# Print the importance of variables
+var_importance_sorted <- sort(var_importance, decreasing = TRUE)
+print(var_importance_sorted)
+
+# Get the names of the three variables with the highest importance
+top_three_variables <- names(var_importance_sorted)[1:3]
+print(top_three_variables)
+
+# Check if the variable 'name' is important
+is_name_variable_important <- "name" %in% names(var_importance_sorted)
+print(is_name_variable_important)
+```
+Remark: you can try and change the options when building the tree if you want. You can see then that the tree is very unstable.
+
+```{r tree, warning=FALSE, message=FALSE}
+library(rpart.plot)
+tree.deep <- rpart(call ~ ., data = data_for_tree, maxdepth = 3, cp = -1)
+rpart.plot(tree.deep)
+```
+
+## Q7.2
+
+Separate the dataset into a training set and a test set. Build two trees explaining the variable `call`:
+
+* one tree with all the variables,
+ 
+* one tree without the variables `name`, `gender` and `ethnicity`. 
+
+Take the same hyperparameters for the two trees. 
+
+Plot the ROC curves and calculates the AUC for both trees. Conclude about the relevance of variables `name`, `gender` and `ethnicity` to explain `call`.
+
+```{r separation for tree}
+samples <- sample(c(1,2),size=nrow(data_for_tree),replace=TRUE,prob=c(0.8,0.2))
+training_tree.set <- data_for_tree[samples==1,]
+test_tree.set <- data_for_tree[samples==2,]
+```
+
+```{r}
+tree_all <- rpart(call ~ ., data = training_tree.set)
+cp_tree_all <- tree_all$cptable[which.min(tree_all$cptable[,'xerror']),'CP']
+tree_all <- rpart(call ~ ., data = training_tree.set, cp=cp_tree_all)
+# Tree without name, gender, and ethnicity variables
+tree_reduce <- rpart(call ~ . - name - gender - ethnicity, data = training_tree.set)
+cp_tree_reduce <- tree_all$cptable[which.min(tree_reduce$cptable[,'xerror']),'CP']
+tree_reduce <- rpart(call ~ . - name - gender - ethnicity, data = training_tree.set, , cp=cp_tree_reduce)
+```
+cp is a function to optimize the model of tree, last time if we just use cp = -1 the result is 0,5 and 0,5 and it like make no sense so that is reason i use cp try to improve it a little bit
+
+```{r, warning=FALSE, message=FALSE}
+library(pROC)
+pred_all <- predict(tree_all, newdata = test_tree.set, type="class")
+roc_all <- roc(test_tree.set$call, as.ordered(pred_all))
+# Tree without name, gender, and ethnicity variables
+pred_reduce <- predict(tree_reduce, newdata = test_tree.set, type="class")
+roc_reduce <- roc(test_tree.set$call, as.ordered(pred_reduce))
+# 4. Conclude about variable relevance
+# Plot ROC curves
+plot(roc_all, col = "blue", main = "ROC Curves")
+lines(roc_reduce, col = "red")
+legend("bottomright", legend = c("All Variables", "Without Name/Gender/Ethnicity"), col = c("blue", "red"), lty = 1)
+
+# Calculate AUC
+auc_all <- auc(roc_all)
+auc_reduce <- auc(roc_reduce)
+cat("AUC with all variables:", auc_all, "\n")
+cat("AUC without name/gender/ethnicity:", auc_reduce, "\n")
+```
+
+--> The AUC value indicates the predictive performance of each model and If the AUC value is closer to 1, the model is better at predicting the outcome variable

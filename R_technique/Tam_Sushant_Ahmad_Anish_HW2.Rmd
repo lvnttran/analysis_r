@@ -1,0 +1,517 @@
+---
+title: "Predicting machine failure using R"
+author: "Tam TRAN, Sushant, Ahmad, Anish"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+subtitle: Model validation and hyperparameter tuning
+---
+
+
+
+# Packages
+
+For this course, we will use the following packages:
+
+- `caret`: this package is used for data manipulation and model training
+- `rpart.plot`: this package is used for plotting decision trees
+- `ggplot2`: this package is used for plotting
+
+**Note**: for this session, we will mainly use the `caret` package, which has an *excellent* documentation freely available at this [link](https://topepo.github.io/caret/index.html). Do not hesitate to consult it for additional information.
+
+```{r Packages, warning= FALSE, message= FALSE}
+library(tidyverse)
+library(caret)
+library(rpart.plot)
+library(ggplot2)
+library(kernlab) # Required for cross-validation
+library(boot)
+library(dplyr)
+```
+
+# Introduction
+
+In the last sessions, you have learned how to process your data and you have trained several models on a binary classification task.
+You have also learned how to evaluate the performance of your models on a test set using the confusion matrix and the main metrics: accuracy, precision, recall, and F1 score.
+While the approach we have used is a good starting point, it is not sufficient to build a robust model.
+Indeed, a test set **is not** indended to assess the model performance during the training phase.
+The role of the test set is to estimate an **unbiased** assessement of the model performance on unseen data.
+
+To understand why, we will suppose we want to train a knn for our machine failure prediction task.
+You have split your data into a training set and a test set.
+You have trained your model on the training set and you have evaluated its performance on the test set,
+with a value of k equal to 5. Now, you want to determine if you can have a better performance by changing the value of k.
+Thus, you can be tempted to increase the value of k and to retrain your model on the training set.
+Then, you can evaluate the performance of your model on the test set.
+Trying to determine the best k value by using the test set is biasing your model towards good performance on the test set.
+Thus, it does not guarantee that your model will perform well on future unseen data. You only know that for this given test set, your model performs well.
+
+So, what is the best approach to evaluate and determine the best model?
+
+To help you answer this, you will study the concept of cross-validation and hyperparameter tuning.
+You will be using same dataset as in the previous sessions.
+
+
+
+# 1. Preparing the dataset
+
+As in the previous session^[
+  You might wish to reuse the code from corrected version
+]:
+
+- load the dataset,
+- choose the features and the target,
+- scale the features, 
+- split it into a training set and a test set.
+
+In what follows, you will use the training set to train your models, compare their performance, tune the hyperparameters, and select the best model.
+The test set will be used to estimate an unbiased assessment of the model performance on unseen data.
+
+```{r Dataset, warning= FALSE, message= FALSE}
+# TODO: prepare the dataset
+data <- read.csv("maintenance_predictive_small.csv")
+```
+
+```{r Preprocessing, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+# the features and target go from column 3 to 9
+create_dataset <- function(data) {
+  X <- data[, 3:9]
+  X$MachineFailure <- as.factor(X$MachineFailure)
+  return(X)
+}
+
+create_scaled_dataset <- function(data) {
+  X <- data[, 3:9]
+  X$MachineFailure <- as.factor(X$MachineFailure)
+  X[, 2:6] <- scale(X[, 2:6])
+  return(X)
+}
+
+split_dataset <- function(X) {
+  index <- createDataPartition(X$MachineFailure, p = 0.8, list = FALSE)
+  X_train <- X[index, ]
+  X_test <- X[-index, ]
+  return(list(X_train, X_test))
+}
+```
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+X <- create_dataset(data)
+X_train_test <- split_dataset(X)
+X_train <- X_train_test[[1]]
+X_test <- X_train_test[[2]]
+```
+
+# 2. The validation approach
+
+As we stated, the test set is **not intended** to be used during the training phase.
+Thus, we need to find a way to evaluate the performance of our models on unseen data during training. 
+One possible approach is to compute the different metrics on the training set.
+However, this approach is not reliable because performing well on the training set does not guarantee that the model will perform well on unseen data.
+
+A better approach is to use the validation approach. The training set is split again into a training set and a validation set (or hold-out set).
+The model is trained on the training set and evaluated on the validation set.
+However, using a fixed validation may lead to a biased evaluation of the model performance, as in the case of the test set.
+
+To avoid this, we can use the $k$-fold cross-validation approach.
+In this approach, the training set is split into $k$ subsets (folds) of approximately equal size.
+The model is trained on $k-1$ folds and evaluated on the remaining fold.
+This process is repeated $k$ times, each time using a different fold as a validation set.
+The final performance of the model is the average of the $k$ performances obtained on the $k$ folds.
+Although there is no formal rule to determine the best value for $k$, it is common to use $k=5$ or $k=10$, as they empirically proved to be good values.
+
+In R, the `train` function from the `caret` package can be used to perform the $k$-fold cross-validation.
+The `train` function takes as input the training set, the model to be trained, and the metric to be used to evaluate the model's performance.
+The syntax of the `train` function is `train(formula, data, method, trControl, metric)`, where:
+
+- `formula`:  is a symbolic description of the model to be fitted.
+- `data`: is the training set.
+- `method`: is the model to be trained. You can specify which model you want to train as a string.
+    
+    - For knn, use "knn".
+    - For decision trees, you "rpart".
+    - For logistic regression, use "glm".
+    - For neural networks, use "nnet".
+    - For Support Vector Machines, use "svmRadial".
+    - A complete list of models can be found in this [link](https://topepo.github.io/caret/train-models-by-tag.html).
+
+- `trControl`: is a list of parameters used to control the training process.
+- `metric`: is the metric to be used to evaluate the model's performance. For classification, we will use the `Accuracy` metric.
+
+For the `trControl` parameter, we will use the `trainControl` function from the `caret` package.
+The `trainControl` function takes as input the validation method and the number of folds.
+The syntax of the `trainControl` function is `trainControl(method, number)`, where:
+
+- `method`: is the validation method. We will use the `cv` method for the $k$-fold cross-validation.
+- `number`: is the number of folds. We will use the value 5 or 10.
+
+`train` returns a list of class `train` that contains the best model and the performance of the model on the validation set among other information.
+You can pass the returned object to the `predict` function to evaluate it on the test set.
+
+**Question**: Use the `train` function to train a logistic regression model on the training set and evaluate its performance on the test set.
+To view the model's parameters you can use the `summary` function, with the returned object of the `train` function as input.
+
+Train a logistic regression model
+
+```{r Validation, message=FALSE, warning=FALSE}
+# TODO: train a logistic regression model using 5-fold cross-validation
+levels(X_train$MachineFailure) <- make.names(levels(X_train$MachineFailure))
+logistic_model <- train(
+  MachineFailure ~ AirTemperature + ProcessTemperature + RotationalSpeed + Torque + ToolWear,
+  data = X_train,
+  method = "glm",
+  trControl = trainControl(method = "cv", number = 5, savePredictions = 'all', classProbs = TRUE)
+)
+print(logistic_model)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# TODO: evaluate the model on the test set, and print the accuracy, confusion matrix, precision, recall, and F1-score
+levels(X_test$MachineFailure) <- make.names(levels(X_test$MachineFailure))
+test_predictions <- predict(logistic_model, newdata = X_test)
+
+# Compute evaluation metrics
+confusion_matrix_logit <- confusionMatrix(test_predictions, X_test$MachineFailure)
+accuracy_logit <- confusion_matrix_logit$overall["Accuracy"]
+precision_logit <- precision(confusion_matrix_logit$table)
+recall_logit <- recall(confusion_matrix_logit$table)
+f1_score_logit <- F_meas(confusion_matrix_logit$table)
+
+# Print the evaluation metrics
+print(paste("Accuracy (Logit):", accuracy_logit))
+print("Confusion Matrix (Logit):")
+print(confusion_matrix_logit$table)
+print(paste("Precision (Logit):", precision_logit))
+print(paste("Recall (Logit):", recall_logit))
+print(paste("F1-score (Logit):", f1_score_logit))
+```
+
+### Repeated cross-validation
+
+To obtain more robust results, we can use the repeated $k$-fold cross-validation approach, which consists of repeating the $k$-fold cross-validation process several times.
+For this, we will use the `repeatedcv` method for the `method` parameter of the `trainControl` function, and specify `number` for the number of folds, and `repeats` for the number of repetitions of the validation process.
+When using repeated cross-validation, the dataset is split into $k$ different folds for each repetition.
+
+**Warining**: make sure that a seed is set **before** using the `repeatedcv` method, as the method uses random sampling. For this, use `set.seed(int)` function (where `int` is an integer).
+
+**Question**: Use the `train` function to train a `knn` model using the repeated $5$-fold cross-validation approach with $10$ repetitions.
+Compare the performance of that model to a `knn` that uses cross-validation with $5$ folds. 
+
+```{r Coss-validation KNN}
+# TODO: Train a knn model using repeated 5-fold cross-validation
+knn_model <- train(
+  MachineFailure ~ AirTemperature + ProcessTemperature + RotationalSpeed + Torque + ToolWear,
+  data = X_train,
+  method = "knn",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 5, savePredictions = 'all', classProbs = TRUE),
+  metric = "Accuracy"
+)
+
+# Print the trained kNN model
+print(knn_model)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# TODO: evaluate the model on the test set, and print the accuracy, confusion matrix, precision, recall, and F1-score
+test_predictions_knn <- predict(knn_model, newdata = X_test)
+
+# Compute evaluation metrics
+confusion_matrix_knn <- confusionMatrix(test_predictions_knn, X_test$MachineFailure)
+accuracy_knn <- confusion_matrix_knn$overall["Accuracy"]
+precision_knn <- precision(confusion_matrix_knn$table)
+recall_knn <- recall(confusion_matrix_knn$table)
+f1_score_knn <- F_meas(confusion_matrix_knn$table)
+
+# Print the evaluation metrics
+print(paste("Accuracy (kNN):", accuracy_knn))
+print("Confusion Matrix (kNN):")
+print(confusion_matrix_knn$table)
+print(paste("Precision (kNN):", precision_knn))
+print(paste("Recall (kNN):", recall_knn))
+print(paste("F1-score (kNN):", f1_score_knn))
+```
+
+*NB. If $k=n$, with $n$ the number of samples in the training set, we say that we are using the leave-one-out cross-validation approach.* 
+*You can implement this validation approach by specifying `LOOCV` as the value of the `method` for the `method` parameter of the `trainControl` function.*
+
+
+
+# 3. Hyperparameter tuning
+
+Apart from the logistic regression model in `glm`, all the models we have used so far have hyperparameters, i.e. parameters that are not learned from the data, but are set by the user before training the model.
+For example, the `knn` model has the hyperparameter `k`, which is the number of nearest neighbors to use for classification.
+As you might have noticed in the previous section for the knn model, during the training process, the `train` function returns the best model among the different models by trying different values of the hyperparameter `k`.
+However, in this example, it only tried the values 5, 7, and 9. In general, you might want to try more values for the hyperparameter to find the best one.
+
+Hyperparameter tuning is the process of finding the best combination of hyperparameters for a model. The most common approach is to use grid search.
+
+Grid search is the process of trying all the possible combinations of hyperparameters values from a range of values determined by the user.
+
+In R, we can specify the `tuneGrid` parameter of the `train` function to perform grid search.
+The `tuneGrid` parameter takes a list of lists, where each list contains the values of a hyperparameter.
+In general, we pass an object of class `expand.grid` to the `tuneGrid` parameter.
+`expand.grid` takes a list of lists as input, where each list contains the values of a hyperparameter.
+It will return a data frame with all the possible combinations of the hyperparameters values.
+
+To understand more, examine the following example:
+
+```{r Hyperparameters}
+hyperparameters <- expand.grid(
+  height = seq(60, 80, 5), weight = seq(100, 300, 50),
+  sex = c("Male", "Female")
+)
+hyperparameters
+```
+
+**Question**: Use the `train` function to train a `knn` model using grid search that tries all possible values of $k$ between 1 and 20, and a repeated 5-fold cross-validation approach with 10 repetitions. What is the value of $k$ for which obtain the best model?
+
+*NB. Training may take few seconds to few minutes*
+
+```{r Hyperparameters KNN, results='hide'}
+# TODO: train a knn model using grid search
+k_range <- seq(1, 20)
+hyperparameters__knn <- data.frame(k = k_range)
+
+knn_model_tuned <- train(
+  MachineFailure ~ AirTemperature + ProcessTemperature + RotationalSpeed + Torque + ToolWear,
+  data = X_train,
+  method = "knn",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 10),
+  tuneGrid = hyperparameters__knn,
+  metric = "Accuracy"
+)
+
+print(knn_model_tuned)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# TODO: evaluate the model on the test set, and print the accuracy, confusion matrix, precision, recall, and F1-score
+test_predictions_knn_tuned <- predict(knn_model_tuned, newdata = X_test)
+
+# Compute evaluation metrics
+confusion_matrix_knn_tuned <- confusionMatrix(test_predictions_knn_tuned, X_test$MachineFailure)
+accuracy_knn_tuned <- confusion_matrix_knn_tuned$overall["Accuracy"]
+precision_knn_tuned <- precision(confusion_matrix_knn_tuned$table)
+recall_knn_tuned <- recall(confusion_matrix_knn_tuned$table)
+f1_score_knn_tuned <- F_meas(confusion_matrix_knn_tuned$table)
+
+# Print the evaluation metrics
+print(paste("Accuracy (kNN_tuned):", accuracy_knn_tuned))
+print("Confusion Matrix (kNN_tuned):")
+print(confusion_matrix_knn_tuned$table)
+print(paste("Precision (kNN_tuned):", precision_knn_tuned))
+print(paste("Recall (kNN_tuned):", recall_knn_tuned))
+print(paste("F1-score (kNN_tuned):", f1_score_knn_tuned))
+```
+
+Now, you will perform a grid search on a **parametric** model that have more that one hyperparameter to tune.
+Let's consider the a Support Vector Machine (SVM) model, which has two hyperparameters: `C` and `sigma`. 
+
+- `C` is the penalty parameter of the error term.
+- `sigma` is the coefficient for the radial basis function kernel.
+
+**Question**: Use the `train` function to train a `svmRadial` model using grid search that tries all possible combinations of values of `C` and `sigma` between 0.1 and 1, with a step of 0.1, and a repeated 5-fold cross-validation approach with 10 repetitions. What is the combination of values of `C` and `sigma` for which obtain the best model?
+
+*NB. To know which hyperparameters can be tuned for a model, see the correponding documentation of the on this [link](https://topepo.github.io/caret/train-models-by-tag.html).*
+
+```{r Hyperparameters SVM, results='hide'}
+# TODO: train a svm model using grid search
+c_range <- seq(0.1, 1, by = 0.1)
+sigma_range <- seq(0.1, 1, by = 0.1)
+
+hyperparameters_svm <- expand.grid(C = c_range, sigma = sigma_range)
+
+svm_model_tuned <- train(
+  MachineFailure ~ AirTemperature + ProcessTemperature + RotationalSpeed + Torque + ToolWear,
+  data = X_train,
+  method = "svmRadial",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 10),
+  tuneGrid = hyperparameters_svm,
+  metric = "Accuracy"
+)
+
+# Print the best model
+print(svm_model_tuned)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# TODO: evaluate the model on the test set, and print the accuracy, confusion matrix, precision, recall, and F1-score
+svm_pred_test <- predict(svm_model_tuned, newdata = X_test)
+
+# Compute evaluation metrics
+confusion_matrix_svm <- confusionMatrix(svm_pred_test, X_test$MachineFailure)
+accuracy_svm <- confusion_matrix_svm$overall["Accuracy"]
+precision_svm <- precision(confusion_matrix_svm$table)
+recall_svm <- recall(confusion_matrix_svm$table)
+f1_score_svm <- F_meas(confusion_matrix_svm$table)
+
+# Print the evaluation metrics
+print(paste("Accuracy (SVM):", accuracy_svm))
+print("Confusion Matrix (SVM):")
+print(confusion_matrix_svm$table)
+print(paste("Precision (SVM):", precision_svm))
+print(paste("Recall (SVM):", recall_svm))
+print(paste("F1-score (SVM):", f1_score_svm))
+```
+
+**Warining**: hyperparameters are **different** from the parameters of a model. The parameters of a model are learned from the data, while the hyperparameters are set by the user before training the model. 
+
+Another **parametric** model that you can tune is the neural network. It has two hyperparameters: `size` and `decay`.
+
+- `size` is the number of neurons in the hidden layer.
+- `decay` is the decay parameter for the weight update.
+
+**Question**: Use the `train` function to train a `nnet` model using grid search that tries all 
+possible combinations of values of `size` and `decay`, where:
+
+- `size` is a vector of values between 5 and 15, with a step of 1.
+- `decay` is a vector of values between 0.01 and 0.1, with a step of 0.01.
+
+Use a repeated 5-fold cross-validation approach with 10 repetitions. What is the combination of values of `size` and `decay` for which obtain the best model?
+
+```{r Hyperparameters NN, results='hide'}
+# TODO: train a nnet model using grid search
+size_range <- seq(5, 15, 1)
+decay_range <- seq(0.01, 0.1, 0.01)
+
+hyperparameters_nnet <- expand.grid(size = size_range, decay = decay_range)
+
+nnet_model_tuned <- train(
+  MachineFailure ~ AirTemperature + ProcessTemperature + RotationalSpeed + Torque + ToolWear,
+  data = X_train,
+  method = "nnet",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 10),
+  tuneGrid = hyperparameters_nnet,
+  metric = "Accuracy"
+)
+
+# Print the best model
+print(nnet_model_tuned)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# TODO: evaluate the model on the test set, and print the accuracy, confusion matrix, precision, recall, and F1-score
+nnet_pred_test <- predict(nnet_model_tuned, newdata = X_test)
+
+# Compute evaluation metrics
+conf_matrix_nnet <- confusionMatrix(nnet_pred_test, X_test$MachineFailure)
+accuracy_nnet <- conf_matrix_nnet$overall["Accuracy"]
+precision_nnet <- precision(conf_matrix_nnet$table)
+recall_nnet <- recall(conf_matrix_nnet$table)
+f1_score_nnet <- F_meas(conf_matrix_nnet$table)
+
+# Print the evaluation metrics
+print(paste("Accuracy (Neural Network Tuned):", accuracy_nnet))
+print("Confusion Matrix (Neural Network Tuned):")
+print(conf_matrix_nnet$table)
+print(paste("Precision (Neural Network Tuned):", precision_nnet))
+print(paste("Recall (Neural Network Tuned):", recall_nnet))
+print(paste("F1-score (Neural Network Tuned):", f1_score_nnet))
+```
+
+Finally, let's find the best hyperparameters for the decision tree.
+A decision tree has one hyperparameter: `cp`, which is the complexity parameter.
+The complexity parameter is used to control the tree size.
+A small value of `cp` will lead to a large tree, while a large value of `cp` will lead to a small tree.
+
+**Question**: Use the `train` function to train a `rpart` model using grid search that tries all 
+possible values of `cp` between 0.001 and 0.1, with a step of 0.001, 
+and a repeated 5-fold cross-validation approach with 10 repetitions. 
+What is the value of `cp` for which obtain the best model?
+
+```{r Hyperparameters DT, results='hide'}
+# TODO: train a decision tree model using grid search
+cp_values <- seq(0.001, 0.1, by = 0.001)
+hyperparameters_dt <- data.frame(cp = cp_values)
+
+# Train the decision tree model using grid search
+dt_model_tuned <- train(
+  MachineFailure ~ AirTemperature + ProcessTemperature + RotationalSpeed + Torque + ToolWear,
+  data = X_train,
+  method = "rpart",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 10),
+  tuneGrid = hyperparameters_dt,
+  metric = "Accuracy"
+)
+
+# Print the best model
+print(dt_model_tuned)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# TODO: evaluate the model on the test set, and print the accuracy, confusion matrix, precision, recall, and F1-score
+test_predictions_dt <- predict(dt_model_tuned, newdata = X_test)
+
+# Compute evaluation metrics
+confusion_matrix_dt <- confusionMatrix(test_predictions_dt, X_test$MachineFailure)
+accuracy_dt <- confusion_matrix_dt$overall["Accuracy"]
+precision_dt <- precision(confusion_matrix_dt$table)
+recall_dt <- recall(confusion_matrix_dt$table)
+f1_score_dt <- F_meas(confusion_matrix_dt$table)
+
+# Print the evaluation metrics
+print(paste("Accuracy (Decision Tree):", accuracy_dt))
+print("Confusion Matrix (Decision Tree):")
+print(confusion_matrix_dt$table)
+print(paste("Precision (Decision Tree):", precision_dt))
+print(paste("Recall (Decision Tree):", recall_dt))
+print(paste("F1-score (Decision Tree):", f1_score_dt))
+```
+
+**Question**: Compile all your findings in this table:
+
+| Model         | Best hyperparameters | Accuracy (on test set) | F1-score (on test set) |
+|---------------|----------------------|------------------------|------------------------|
+| KNN           |                      |                        |                        |
+| SVM           |                      |                        |                        |
+| Neural Net    |                      |                        |                        |
+| Decision Tree |                      |                        |                        |
+|               |                      |                        |                        |
+
+
+
+# Bonus: Saving and loading a model
+
+As you have seen, training a model and tuning its hyperparameters can take a lot of time.
+Thus, it is not desirable to train a model every time you want to use it. 
+Also, in general, training and assessing the performance of a model is just a part of the machine learning pipeline.
+In real world applications, the trained model is deployed and used to make predictions on new data.
+
+To meet these needs, you can save your trained model, so that you can load it later and use it to make predictions on new data.
+In R, you can save a model using the `saveRDS` function, and load it using the `readRDS` function.
+
+The syntax of the `saveRDS` function is the following: `saveRDS(model, file_name)` where:
+
+- `model` is the model to save.
+- `file_name` is the name of the file where the model will be saved. It ends with the extension ".rds".
+
+The syntax of the `readRDS` function is the following: `readRDS(file_name)` where `file_name` is the name of the file where the model is saved.
+
+For example, let's save the `knn_model` you previously trained on "knn_model.rds": 
+
+`saveRDS(knn_model, "knn_model.rds")`
+
+Now, let's load the model we just saved and use it to make predictions on the test set.
+
+`knn_model <- readRDS("knn_model.rds")`
+
+`knn_pred <- predict(knn_model, X_test)`
+
+```{r, message=FALSE, warning=FALSE}
+saveRDS(logistic_model, "logistic_model.rds")
+
+# Load the saved model
+loaded_model <- readRDS("logistic_model.rds")
+
+# Use the loaded model to make predictions on new data
+num_rows <- 10  
+random_rows <- sample(nrow(X), num_rows)
+new_data <- X[random_rows, ]
+new_data$MachineFailure_Label <- ifelse(new_data$MachineFailure == 0, "X0", "X1")
+print(new_data$MachineFailure_Label)
+predictions <- predict(loaded_model, newdata = new_data)
+# Print the predictions
+print(predictions)
+```
